@@ -1,36 +1,146 @@
-# .github/test-config.yml
-project:
-  name: OCR Forms
-  path: Formsocr/OCR
+# .github/workflows/local-test.yml
+name: Test OCR Forms Locally
 
-testing:
-  timeouts:
-    startup: 10
-    health_check: 5
-    shutdown: 5
+on:
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Type of test to run'
+        required: true
+        default: 'full'
+        type: choice
+        options:
+        - full
+        - build-only
+        - test-only
 
-  required_files:
-    - docker-compose.yml
-    - backend/Dockerfile
-    - frontend/Dockerfile
-    - backend/requirements.txt
-    - frontend/package.json
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Formsocr/OCR
+        
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
 
-  required_directories:
-    - backend
-    - frontend
-    - backend/app
-    - frontend/src
+    - name: Load configuration
+      id: config
+      run: |
+        if [ -f "../../.github/test-config.yml" ]; then
+          echo "Loading test configuration..."
+          echo "config_path=../../.github/test-config.yml" >> $GITHUB_OUTPUT
+        else
+          echo "Using default configuration..."
+          echo "config_path=" >> $GITHUB_OUTPUT
+        fi
 
-  services:
-    backend:
-      port: 8000
-      health_check: /docs
-    frontend:
-      port: 3000
-      health_check: /
+    - name: Set up Docker
+      uses: docker/setup-buildx-action@v3
+      with:
+        install: true
 
-  docker:
-    prune_on_cleanup: true
-    remove_volumes: true
-    stats_enabled: true
+    - name: Verify project structure
+      run: |
+        echo "Checking project structure..."
+        pwd
+        ls -la
+        
+        # בדיקת תיקיות
+        for dir in "backend" "frontend" "backend/app" "frontend/src"; do
+          if [ ! -d "$dir" ]; then
+            echo "Error: Directory $dir not found"
+            exit 1
+          fi
+        done
+        
+        # בדיקת קבצים
+        for file in "docker-compose.yml" "backend/Dockerfile" "frontend/Dockerfile"; do
+          if [ ! -f "$file" ]; then
+            echo "Error: File $file not found"
+            exit 1
+          fi
+        done
+        
+        echo "Project structure verified successfully!"
+
+    - name: Build containers
+      if: ${{ github.event.inputs.test_type != 'test-only' }}
+      run: |
+        echo "Building Docker containers..."
+        docker compose build --no-cache
+        echo "Build completed successfully!"
+        docker images
+
+    - name: Start services
+      if: ${{ github.event.inputs.test_type == 'full' }}
+      run: |
+        echo "Starting services..."
+        docker compose up -d
+        sleep 10
+        docker compose ps
+        echo "Services started successfully!"
+
+    - name: Test services
+      if: ${{ github.event.inputs.test_type != 'build-only' }}
+      run: |
+        echo "Testing services..."
+        if docker compose ps | grep -q "Up"; then
+          echo "Services are running"
+          
+          # בדיקת Backend
+          if curl -s http://localhost:8000/docs > /dev/null; then
+            echo "Backend is responding"
+          else
+            echo "Error: Backend is not responding"
+            exit 1
+          fi
+          
+          # בדיקת Frontend
+          if curl -s http://localhost:3000 > /dev/null; then
+            echo "Frontend is responding"
+          else
+            echo "Error: Frontend is not responding"
+            exit 1
+          fi
+          
+        else
+          echo "Error: Services are not running"
+          docker compose logs
+          exit 1
+        fi
+        
+        echo "Tests completed successfully!"
+
+    - name: Show container logs
+      if: always()
+      run: |
+        echo "Backend logs:"
+        docker compose logs backend
+        
+        echo "Frontend logs:"
+        docker compose logs frontend
+
+    - name: Resource usage
+      run: |
+        echo "Container resource usage:"
+        docker stats --no-stream $(docker compose ps -q)
+
+    - name: Cleanup
+      if: always()
+      run: |
+        echo "Cleaning up..."
+        docker compose down
+        docker system prune -f --volumes
+        echo "Cleanup completed"
+
+    - name: Test summary
+      run: |
+        echo "Test Summary"
+        echo "============"
+        echo "Test type: ${{ github.event.inputs.test_type }}"
+        echo "Repository: ${{ github.repository }}"
+        echo "Branch: ${{ github.ref_name }}"
+        echo "Commit: ${{ github.sha }}"
+        echo "Run time: $(date)"
