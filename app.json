@@ -1,0 +1,18 @@
+{
+  "name": "formsocr-backend",
+  "description": "Backend for FormsOCR project",
+  "repository": "https://github.com/KALFANET/Formsocr",
+  "keywords": ["fastapi", "python", "ocr", "heroku"],
+  "buildpacks": [
+    { "url": "heroku/python" }
+  ],
+  "env": {
+    "PYTHONUNBUFFERED": {
+      "description": "Keep Python output unbuffered",
+      "value": "1"
+    }
+  },
+  "scripts": {
+    "postdeploy": "echo 'Backend deployment successful'"
+  }
+}
