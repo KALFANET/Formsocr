@@ -1,0 +1,373 @@
+# .github/workflows/project-setup.yml
+name: Setup OCR Forms Project
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_name:
+        description: 'Project name'
+        required: true
+        default: 'OCR'
+
+jobs:
+  setup-project:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      
+    - name: Create project structure
+      run: |
+        # יצירת מבנה תיקיות
+        mkdir -p ${{ github.event.inputs.project_name }}/{backend/{app/{processors,models,utils},tests},frontend/{src/{components/{FileUpload,ui},services,styles,pages},public},.github/workflows}
+      
+    - name: Create backend files
+      run: |
+        # Backend - main.py
+        cat << 'EOF' > ${{ github.event.inputs.project_name }}/backend/app/main.py
+        from fastapi import FastAPI, File, UploadFile, HTTPException
+        from fastapi.middleware.cors import CORSMiddleware
+        from pathlib import Path
+        import shutil
+        import logging
+        
+        logging.basicConfig(level=logging.INFO)
+        logger = logging.getLogger(__name__)
+        
+        app = FastAPI(title="OCR Forms API")
+        
+        # CORS configuration
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+        
+        # Storage paths
+        STORAGE_PATH = Path("storage")
+        UPLOAD_PATH = STORAGE_PATH / "uploads"
+        PROCESSED_PATH = STORAGE_PATH / "processed"
+        
+        # Create directories
+        for path in [UPLOAD_PATH, PROCESSED_PATH]:
+            path.mkdir(parents=True, exist_ok=True)
+        
+        @app.post("/api/upload/")
+        async def upload_file(file: UploadFile = File(...)):
+            try:
+                file_path = UPLOAD_PATH / file.filename
+                with file_path.open("wb") as buffer:
+                    shutil.copyfileobj(file.file, buffer)
+                return {"filename": file.filename, "status": "success"}
+            except Exception as e:
+                logger.error(f"Upload error: {str(e)}")
+                raise HTTPException(status_code=500, detail=str(e))
+        EOF
+        
+        # Backend - requirements.txt
+        cat << 'EOF' > ${{ github.event.inputs.project_name }}/backend/requirements.txt
+        fastapi==0.109.2
+        uvicorn==0.27.1
+        python-multipart==0.0.9
+        Pillow==10.2.0
+        pytesseract==0.3.10
+        numpy==1.26.4
+        python-jose==3.3.0
+        passlib==1.7.4
+        python-dotenv==1.0.0
+        EOF
+        
+        # Backend - Dockerfile
+        cat << 'EOF' > ${{ github.event.inputs.project_name }}/backend/Dockerfile
+        FROM python:3.11-slim
+
+        RUN apt-get update && apt-get install -y \
+            tesseract-ocr \
+            tesseract-ocr-heb \
+            libgl1-mesa-glx \
+            && rm -rf /var/lib/apt/lists/*
+
+        WORKDIR /app
+
+        COPY requirements.txt .
+        RUN pip install --no-cache-dir -r requirements.txt
+
+        COPY . .
+
+        CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+        EOF
+
+    - name: Create frontend files
+      run: |
+        # Frontend - package.json
+        cat << 'EOF' > ${{ github.event.inputs.project_name }}/frontend/package.json
+        {
+          "name": "ocr-forms-frontend",
+          "private": true,
+          "version": "0.1.0",
+          "type": "module",
+          "scripts": {
+            "dev": "vite",
+            "build": "vite build",
+            "preview": "vite preview"
+          },
+          "dependencies": {
+            "react": "^18.2.0",
+            "react-dom": "^18.2.0",
+            "react-router-dom": "^6.22.1",
+            "lucide-react": "^0.363.0",
+            "@radix-ui/react-dialog": "^1.0.5",
+            "@radix-ui/react-alert-dialog": "^1.0.5",
+            "tailwindcss": "^3.4.1",
+            "axios": "^1.6.7"
+          },
+          "devDependencies": {
+            "@types/react": "^18.2.64",
+            "@types/react-dom": "^18.2.21",
+            "@vitejs/plugin-react": "^4.2.1",
+            "autoprefixer": "^10.4.18",
+            "postcss": "^8.4.35",
+            "vite": "^5.1.6"
+          }
+        }
+        EOF
+        
+        # Frontend - index.html
+        cat << 'EOF' > ${{ github.event.inputs.project_name }}/frontend/index.html
+        <!DOCTYPE html>
+        <html lang="he" dir="rtl">
+          <head>
+            <meta charset="UTF-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+            <title>OCR Forms</title>
+          </head>
+          <body>
+            <div id="root"></div>
+            <script type="module" src="/src/main.jsx"></script>
+          </body>
+        </html>
+        EOF
+        
+        # Frontend - App.jsx
+        cat << 'EOF' > ${{ github.event.inputs.project_name }}/frontend/src/App.jsx
+        import React from 'react';
+        import { BrowserRouter, Routes, Route } from 'react-router-dom';
+        import Layout from './components/Layout';
+        import Dashboard from './pages/Dashboard';
+        import ProcessForm from './pages/ProcessForm';
+        
+        function App() {
+          return (
+            <BrowserRouter>
+              <Layout>
+                <Routes>
+                  <Route path="/" element={<Dashboard />} />
+                  <Route path="/process" element={<ProcessForm />} />
+                </Routes>
+              </Layout>
+            </BrowserRouter>
+          );
+        }
+        
+        export default App;
+        EOF
+        
+        # Frontend - Dockerfile
+        cat << 'EOF' > ${{ github.event.inputs.project_name }}/frontend/Dockerfile
+        FROM node:20-slim
+
+        WORKDIR /app
+
+        COPY package*.json ./
+        RUN npm install
+
+        COPY . .
+
+        EXPOSE 3000
+
+        CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+        EOF
+        - name: Create Docker Compose
+      run: |
+        # וודא שהתיקייה קיימת
+        mkdir -p ${{ github.event.inputs.project_name }}
+        
+        # יצירת docker-compose.yml
+        tee ${{ github.event.inputs.project_name }}/docker-compose.yml > /dev/null << 'EOF'
+        version: '3.8'
+
+        services:
+          backend:
+            build: 
+              context: ./backend
+              dockerfile: Dockerfile
+            ports:
+              - "8000:8000"
+            volumes:
+              - ./backend:/app
+              - storage:/app/storage
+            environment:
+              - PYTHONPATH=/app
+            restart: unless-stopped
+            
+          frontend:
+            build: 
+              context: ./frontend
+              dockerfile: Dockerfile
+            ports:
+              - "3000:3000"
+            volumes:
+              - ./frontend:/app
+              - /app/node_modules
+            depends_on:
+              - backend
+            restart: unless-stopped
+
+        volumes:
+          storage:
+        EOF
+
+        # הצג את התוכן לאימות
+        echo "Content of docker-compose.yml:"
+        cat ${{ github.event.inputs.project_name }}/docker-compose.yml
+
+    - name: Create deployment workflow
+      run: |
+        cat << 'EOF' > ${{ github.event.inputs.project_name }}/.github/workflows/deploy.yml
+        name: Deploy OCR Forms
+        
+        on:
+          push:
+            branches: [ main ]
+        
+        jobs:
+          deploy:
+            runs-on: ubuntu-latest
+            
+            steps:
+            - uses: actions/checkout@v3
+            
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v3
+            
+            - name: Build and deploy
+              run: |
+                docker compose build
+                docker compose up -d
+        EOF
+
+    - name: Create README
+      run: |
+        cat << 'EOF' > ${{ github.event.inputs.project_name }}/README.md
+        # OCR Forms System
+        
+        מערכת לעיבוד טפסים אוטומטי עם תמיכה בעברית.
+        
+        ## התקנה
+        
+        ### דרישות מקדימות
+        
+        - Docker & Docker Compose V2
+        - Node.js 18+
+        - Python 3.11+
+        - Tesseract OCR
+        
+        ### הוראות התקנה
+        
+        1. התקנת תלויות:
+        ```bash
+        # Backend
+        cd backend
+        pip install -r requirements.txt
+        
+        # Frontend
+        cd frontend
+        npm install
+        ```
+        
+        2. הפעלה:
+        ```bash
+        docker compose up --build
+        ```
+        
+        הממשק זמין ב:
+        - Frontend: http://localhost:3000
+        - Backend API: http://localhost:8000
+        
+        ## תכונות
+        
+        - עיבוד OCR לטפסים בעברית
+        - ממשק משתמש רספונסיבי
+        - תמיכה במגוון פורמטים
+        - היסטוריית עיבודים
+        - ייצוא תוצאות
+        EOF
+
+    - name: Validate project structure
+      run: |
+        echo "Checking project structure..."
+        
+        # בדיקת קיום תיקיות
+        for dir in \
+          "${{ github.event.inputs.project_name }}/backend" \
+          "${{ github.event.inputs.project_name }}/frontend" \
+          "${{ github.event.inputs.project_name }}/.github/workflows"
+        do
+          if [ ! -d "$dir" ]; then
+            echo "Error: Directory $dir not found"
+            exit 1
+          fi
+        done
+        
+        # בדיקת קיום קבצים קריטיים
+        for file in \
+          "${{ github.event.inputs.project_name }}/docker-compose.yml" \
+          "${{ github.event.inputs.project_name }}/backend/Dockerfile" \
+          "${{ github.event.inputs.project_name }}/frontend/Dockerfile"
+        do
+          if [ ! -f "$file" ]; then
+            echo "Error: File $file not found"
+            exit 1
+          fi
+        done
+        
+        # הצגת תוכן docker-compose.yml
+        echo "Verifying docker-compose.yml content:"
+        cat ${{ github.event.inputs.project_name }}/docker-compose.yml
+        
+        echo "Project structure validation passed"
+
+    - name: Set up Docker
+      uses: docker/setup-buildx-action@v3
+
+    - name: Install Docker Compose V2
+      run: |
+        mkdir -p ~/.docker/cli-plugins/
+        curl -SL https://github.com/docker/compose/releases/download/v2.23.3/docker-compose-linux-x86_64 -o ~/.docker/cli-plugins/docker-compose
+        chmod +x ~/.docker/cli-plugins/docker-compose
+        docker compose version
+        
+        # בדיקת הקובץ לפני השימוש
+        echo "Verifying docker-compose.yml content:"
+        ls -la ${{ github.event.inputs.project_name }}/docker-compose.yml
+        cat ${{ github.event.inputs.project_name }}/docker-compose.yml
+
+    - name: Test Docker Compose file
+      run: |
+        cd ${{ github.event.inputs.project_name }}
+        docker compose config
+        if [ $? -ne 0 ]; then
+          echo "Error: Invalid docker-compose.yml"
+          exit 1
+        fi
+
+    - name: Commit changes
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add .
+        git commit -m "Initial project setup"
+        git push
