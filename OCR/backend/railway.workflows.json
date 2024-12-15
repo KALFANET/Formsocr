@@ -1,0 +1,19 @@
+{
+  "deploy": {
+    "on": "git push",
+    "steps": [
+      {
+        "name": "Install Dependencies",
+        "command": "pip install -r requirements.txt"
+      },
+      {
+        "name": "Run Tests",
+        "command": "pytest"
+      },
+      {
+        "name": "Start Application",
+        "command": "python main.py"
+      }
+    ]
+  }
+}
