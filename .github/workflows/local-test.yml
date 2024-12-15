@@ -5,7 +5,7 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'Formsocr/OCR/**'  # רק כאשר יש שינויים בתיקיית הפרויקט
+      - 'OCR/**'  # שינוי הנתיב
   workflow_dispatch:
     inputs:
       environment:
@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: Formsocr/OCR  # הגדרת תיקיית העבודה
+        working-directory: OCR  # שינוי הנתיב
     
     steps:
     - name: Checkout repository
@@ -36,6 +36,7 @@ jobs:
         ls -la
         if [ ! -d "backend" ] || [ ! -d "frontend" ]; then
           echo "Error: Project directories not found"
+          ls -la ..
           exit 1
         fi
 
