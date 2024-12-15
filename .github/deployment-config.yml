@@ -1,41 +1,153 @@
-# .github/deployment-config.yml
-environments:
-  development:
-    url: http://localhost
-    backend_port: 8000
-    frontend_port: 3000
-    debug: true
-    
-  staging:
-    url: http://staging.example.com
-    backend_port: 8000
-    frontend_port: 3000
-    debug: false
-    
-  production:
-    url: http://production.example.com
-    backend_port: 8000
-    frontend_port: 80
-    debug: false
+# .github/workflows/deploy.yml
+name: Deploy OCR Forms
 
-deployment:
-  timeout: 300
-  healthcheck:
-    retries: 5
-    interval: 10s
-    timeout: 5s
-  
-  monitoring:
-    enabled: true
-    metrics:
-      - container_health
-      - memory_usage
-      - cpu_usage
-      
-  notifications:
-    on_success: false
-    on_failure: true
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'OCR/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'development'
+        type: choice
+        options:
+        - development
+        - staging
+        - production
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
     
-  backup:
-    enabled: true
-    retention_days: 7
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up Docker
+      uses: docker/setup-buildx-action@v3
+      with:
+        install: true
+
+    - name: Install Docker Compose V2
+      run: |
+        mkdir -p ~/.docker/cli-plugins/
+        curl -SL https://github.com/docker/compose/releases/download/v2.23.3/docker-compose-linux-x86_64 -o ~/.docker/cli-plugins/docker-compose
+        chmod +x ~/.docker/cli-plugins/docker-compose
+        docker compose version
+
+    - name: Navigate to project directory
+      run: |
+        cd OCR
+        echo "Changed to OCR directory"
+        pwd
+        ls -la
+
+    - name: Verify docker-compose file
+      working-directory: OCR
+      run: |
+        if [ ! -f "docker-compose.yml" ]; then
+          echo "Error: docker-compose.yml not found in OCR directory"
+          exit 1
+        fi
+        docker compose config
+        if [ $? -ne 0 ]; then
+          echo "Error: Invalid docker-compose.yml"
+          exit 1
+        fi
+
+    - name: Build containers
+      working-directory: OCR
+      run: |
+        echo "Building containers..."
+        docker compose build --no-cache
+        echo "Build completed"
+
+    - name: Start services
+      working-directory: OCR
+      run: |
+        echo "Starting services..."
+        docker compose up -d
+        echo "Services started"
+
+    - name: Wait for services
+      working-directory: OCR
+      run: |
+        echo "Waiting for services to be healthy..."
+        sleep 10
+        
+        # Check backend health
+        backend_health=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/docs)
+        if [ "$backend_health" != "200" ]; then
+          echo "Backend health check failed"
+          docker compose logs backend
+          exit 1
+        fi
+        
+        # Check frontend availability
+        frontend_health=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000)
+        if [ "$frontend_health" != "200" ]; then
+          echo "Frontend health check failed"
+          docker compose logs frontend
+          exit 1
+        fi
+        
+        echo "All services are healthy"
+
+    - name: Show service logs
+      if: always()
+      working-directory: OCR
+      run: |
+        echo "Backend logs:"
+        docker compose logs backend
+        
+        echo "Frontend logs:"
+        docker compose logs frontend
+
+    - name: Run tests
+      working-directory: OCR
+      run: |
+        echo "Running backend tests..."
+        docker compose exec -T backend pytest
+        
+        echo "Running frontend tests..."
+        docker compose exec -T frontend npm test
+
+    - name: Check service status
+      working-directory: OCR
+      run: |
+        echo "Service status:"
+        docker compose ps
+        
+        echo "Container resources usage:"
+        docker stats --no-stream
+
+    - name: Cleanup
+      if: always()
+      working-directory: OCR
+      run: |
+        echo "Cleaning up..."
+        docker compose down
+        docker system prune -f
+        echo "Cleanup completed"
+
+    - name: Deployment summary
+      run: |
+        echo "Deployment Summary:"
+        echo "Environment: ${{ github.event.inputs.environment || 'development' }}"
+        echo "Branch: ${{ github.ref_name }}"
+        echo "Commit: ${{ github.sha }}"
+        echo "Project path: OCR"
+        echo "Deployment time: $(date)"
+        
+        echo "Services:"
+        echo "- Backend: http://localhost:8000"
+        echo "- Frontend: http://localhost:3000"
+        echo "- API Docs: http://localhost:8000/docs"
+
+    - name: Notify on failure
+      if: failure()
+      run: |
+        echo "::error::Deployment failed! Check the logs for more details."
