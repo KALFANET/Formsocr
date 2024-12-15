@@ -1,0 +1,5 @@
+git init
+heroku git:remote -a formsbackgit
+git add .
+git commit -m "Deploy backend manually to Heroku"
+git push heroku master
