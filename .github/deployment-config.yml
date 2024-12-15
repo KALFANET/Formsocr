@@ -1,0 +1,41 @@
+# .github/deployment-config.yml
+environments:
+  development:
+    url: http://localhost
+    backend_port: 8000
+    frontend_port: 3000
+    debug: true
+    
+  staging:
+    url: http://staging.example.com
+    backend_port: 8000
+    frontend_port: 3000
+    debug: false
+    
+  production:
+    url: http://production.example.com
+    backend_port: 8000
+    frontend_port: 80
+    debug: false
+
+deployment:
+  timeout: 300
+  healthcheck:
+    retries: 5
+    interval: 10s
+    timeout: 5s
+  
+  monitoring:
+    enabled: true
+    metrics:
+      - container_health
+      - memory_usage
+      - cpu_usage
+      
+  notifications:
+    on_success: false
+    on_failure: true
+    
+  backup:
+    enabled: true
+    retention_days: 7
