@@ -1,0 +1,27 @@
+name: Deploy Backend to Heroku
+
+on:
+  push:
+    branches:
+      - main  # ירוץ בכל עדכון לבראנץ' main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # שלב 1: שליפת הקוד מהמאגר
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # שלב 2: הוספת Heroku CLI
+      - name: Install Heroku CLI
+        run: |
+          curl https://cli-assets.heroku.com/install.sh | sh
+
+      # שלב 3: דחיפת תיקיית משנה ל-Heroku
+      - name: Push Backend to Heroku
+        env:
+          HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+        run: |
+          git subtree push --prefix OCR/backend https://git.heroku.com/formsbackgit.git main
